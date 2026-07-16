@@ -1,0 +1,79 @@
+version: '3.9'
+
+services:
+  # ── MySQL ──────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: dreamlife_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-RootPass123!}
+      MYSQL_DATABASE: dream_life
+      MYSQL_USER: ${DB_USER:-dreamlife}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-DreamLife2024!}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-RootPass123!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - dreamlife
+
+  # ── Backend NestJS ─────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: dreamlife_api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql://${DB_USER:-dreamlife}:${DB_PASSWORD:-DreamLife2024!}@mysql:3306/dream_life
+      JWT_SECRET: ${JWT_SECRET:-supersecreto_cambia_esto_en_produccion}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-otro_secreto_diferente_para_refresh}
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-development}
+      FRONTEND_URL: http://localhost:3000
+      THROTTLE_TTL: 60000
+      THROTTLE_LIMIT: 100
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - api_uploads:/app/uploads
+    networks:
+      - dreamlife
+
+  # ── Frontend Next.js ───────────────────────────────────
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: dreamlife_web
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+      NEXT_PUBLIC_SOCKET_URL: http://localhost:3001
+      NEXT_PUBLIC_APP_NAME: Dream Life
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    networks:
+      - dreamlife
+
+volumes:
+  mysql_data:
+  api_uploads:
+
+networks:
+  dreamlife:
+    driver: bridge

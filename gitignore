@@ -1,0 +1,63 @@
+# ─── Dependencias ───
+node_modules/
+**/node_modules/
+.pnpm-store/
+.pnp
+.pnp.js
+
+# ─── Builds ───
+.next/
+**/.next/
+dist/
+**/dist/
+build/
+out/
+.turbo/
+**/.turbo/
+
+# ─── Prisma ───
+apps/api/prisma/migrations/dev/
+**/*.tsbuildinfo
+
+# ─── Variables de entorno (SECRETOS - nunca subir) ───
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+!.env.example
+!**/.env.example
+
+# ─── Uploads y archivos generados ───
+apps/api/uploads/
+**/uploads/
+!.gitkeep
+
+# ─── Logs ───
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── Editores / OS ───
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Coverage / tests ───
+coverage/
+*.lcov
+.nyc_output/
+
+# ─── Docker (opcional) ───
+docker-data/
+mysql_data/

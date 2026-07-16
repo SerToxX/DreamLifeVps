@@ -1,0 +1,637 @@
+// ============================================================
+// DREAM LIFE — PRISMA SCHEMA PROFESIONAL
+// Compatible con la BD original + mejoras y nuevas tablas
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// AUTENTICACIÓN Y USUARIOS
+// ─────────────────────────────────────────────
+
+model Rol {
+  id       Int       @id @default(autoincrement())
+  nombre   String    @db.VarChar(50)
+  usuarios Usuario[]
+
+  @@map("rol")
+}
+
+model Usuario {
+  id          Int            @id @default(autoincrement())
+  nombre      String         @db.VarChar(100)
+  correo      String         @unique @db.VarChar(100)
+  contrasena  String         @db.VarChar(255)
+  activo      Boolean        @default(true)
+  rolId       Int
+  rol         Rol            @relation(fields: [rolId], references: [id])
+  cajas       Caja[]
+  ventas      Venta[]
+  auditorias  Auditoria[]
+  gastos      Gasto[]
+  ajustes     AjusteStock[]
+  refreshTokens RefreshToken[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("usuario")
+}
+
+model RefreshToken {
+  id         Int      @id @default(autoincrement())
+  token      String   @unique @db.VarChar(500)
+  usuarioId  Int
+  usuario    Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@map("refresh_token")
+}
+
+model Cliente {
+  id          Int                   @id @default(autoincrement())
+  nombre      String                @db.VarChar(100)
+  apellido    String?               @db.VarChar(100)
+  dni         String?               @db.VarChar(20)
+  correo      String                @unique @db.VarChar(100)
+  telefono    String?               @db.VarChar(20)
+  direccion   String?               @db.Text
+  contrasena  String                @db.VarChar(255)
+  puntos      Int                   @default(0)
+  nivel       String                @default("BRONCE") @db.VarChar(50)
+  activo      Boolean               @default(true)
+  carritos    Carrito[]
+  ventas      Venta[]
+  pedidosPersonalizados PedidoPersonalizado[]
+  clienteRefreshTokens ClienteRefreshToken[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@map("cliente")
+}
+
+model ClienteRefreshToken {
+  id         Int      @id @default(autoincrement())
+  token      String   @unique @db.VarChar(500)
+  clienteId  Int
+  cliente    Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@map("cliente_refresh_token")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTOS Y CATÁLOGO
+// ─────────────────────────────────────────────
+
+model Categoria {
+  id        Int         @id @default(autoincrement())
+  nombre    String      @db.VarChar(100)
+  slug      String      @unique @db.VarChar(100)
+  padreId   Int?
+  padre     Categoria?  @relation("SubCategorias", fields: [padreId], references: [id])
+  hijos     Categoria[] @relation("SubCategorias")
+  productos Producto[]
+
+  @@map("categoria")
+}
+
+model Producto {
+  id            Int              @id @default(autoincrement())
+  nombre        String           @db.VarChar(100)
+  descripcion   String?          @db.Text
+  precioBase    Decimal          @db.Decimal(10, 2)
+  personalizado Boolean          @default(false)
+  activo        Boolean          @default(true)
+  destacado     Boolean          @default(false)
+  categoriaId   Int?
+  categoria     Categoria?       @relation(fields: [categoriaId], references: [id])
+  variantes     Variante[]
+  items         ProductoItem[]
+  insumos       ProductoInsumo[]
+  imagenes      Imagen[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("producto")
+}
+
+model Variante {
+  id          Int            @id @default(autoincrement())
+  productoId  Int
+  producto    Producto       @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  tamano      String?        @db.VarChar(50)
+  material    String?        @db.VarChar(50)
+  acabado     String?        @db.VarChar(50)
+  precioExtra Decimal        @default(0) @db.Decimal(10, 2)
+  items       ProductoItem[]
+
+  @@map("variante")
+}
+
+model Diseno {
+  id         Int            @id @default(autoincrement())
+  categoria  String?        @db.VarChar(50)
+  serie      String?        @db.VarChar(100)
+  personaje  String?        @db.VarChar(100)
+  nombre     String         @db.VarChar(100)
+  items      ProductoItem[]
+
+  @@map("diseno")
+}
+
+model ProductoItem {
+  id              Int              @id @default(autoincrement())
+  codigoSku       String           @unique @db.VarChar(100)
+  productoId      Int
+  producto        Producto         @relation(fields: [productoId], references: [id])
+  varianteId      Int?
+  variante        Variante?        @relation(fields: [varianteId], references: [id])
+  disenoId        Int?
+  diseno          Diseno?          @relation(fields: [disenoId], references: [id])
+  estilo          String?          @db.VarChar(50)
+  activo          Boolean          @default(true)
+  stocks          Stock[]
+  imagenes        Imagen[]
+  carritoDetalles CarritoDetalle[]
+  ventaDetalles   VentaDetalle[]
+  ofertaItems     OfertaItem[]
+  comboDetalles   ComboDetalle[]
+  liquidaciones   Liquidacion[]
+  alertas         AlertaStock[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("producto_item")
+}
+
+model Imagen {
+  id         Int           @id @default(autoincrement())
+  url        String        @db.Text
+  tipo       String?       @db.VarChar(50)
+  orden      Int           @default(0)
+  itemId     Int?
+  item       ProductoItem? @relation(fields: [itemId], references: [id])
+  productoId Int?
+  producto   Producto?     @relation(fields: [productoId], references: [id])
+
+  @@map("imagen")
+}
+
+// ─────────────────────────────────────────────
+// INVENTARIO Y STOCK
+// ─────────────────────────────────────────────
+
+model Ubicacion {
+  id                 Int               @id @default(autoincrement())
+  nombre             String            @db.VarChar(100)
+  tipo               UbicacionTipo
+  ciudad             String?           @db.VarChar(100)
+  activa             Boolean           @default(true)
+  stocks             Stock[]
+  cajas              Caja[]
+  ventas             Venta[]
+  gastos             Gasto[]
+  movimientosOrigen  MovimientoStock[] @relation("StockOrigen")
+  movimientosDestino MovimientoStock[] @relation("StockDestino")
+
+  @@map("ubicacion")
+}
+
+enum UbicacionTipo {
+  taller
+  almacen
+  tienda
+  evento
+  online
+}
+
+model Stock {
+  id          Int            @id @default(autoincrement())
+  itemId      Int
+  item        ProductoItem   @relation(fields: [itemId], references: [id])
+  ubicacionId Int
+  ubicacion   Ubicacion      @relation(fields: [ubicacionId], references: [id])
+  cantidad    Int            @default(0)
+  reservado   Int            @default(0)
+  ajustes     AjusteStock[]
+  ventaDetalles VentaDetalle[]
+
+  @@unique([itemId, ubicacionId])
+  @@map("stock")
+}
+
+model AjusteStock {
+  id        Int      @id @default(autoincrement())
+  stockId   Int
+  stock     Stock    @relation(fields: [stockId], references: [id])
+  usuarioId Int
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id])
+  tipo      String   @db.VarChar(50)
+  cantidad  Int
+  motivo    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@map("ajuste_stock")
+}
+
+model MovimientoStock {
+  id        Int       @id @default(autoincrement())
+  itemId    Int
+  origenId  Int
+  origen    Ubicacion @relation("StockOrigen", fields: [origenId], references: [id])
+  destinoId Int
+  destino   Ubicacion @relation("StockDestino", fields: [destinoId], references: [id])
+  cantidad  Int
+  tipo      String    @db.VarChar(50)
+  usuarioId Int?
+  createdAt DateTime  @default(now())
+
+  @@map("movimiento_stock")
+}
+
+model AlertaStock {
+  id          Int          @id @default(autoincrement())
+  itemId      Int
+  item        ProductoItem @relation(fields: [itemId], references: [id])
+  nivelMinimo Int
+  nivelActual Int          @default(0)
+  color       AlertaColor  @default(VERDE)
+  activa      Boolean      @default(true)
+  updatedAt   DateTime     @updatedAt
+
+  @@map("alerta_stock")
+}
+
+enum AlertaColor {
+  VERDE
+  AMARILLO
+  ROJO
+}
+
+// ─────────────────────────────────────────────
+// VENTAS Y PEDIDOS
+// ─────────────────────────────────────────────
+
+model Venta {
+  id          Int            @id @default(autoincrement())
+  clienteId   Int?
+  cliente     Cliente?       @relation(fields: [clienteId], references: [id])
+  usuarioId   Int?
+  usuario     Usuario?       @relation(fields: [usuarioId], references: [id])
+  ubicacionId Int?
+  ubicacion   Ubicacion?     @relation(fields: [ubicacionId], references: [id])
+  cajaId      Int?
+  caja        Caja?          @relation(fields: [cajaId], references: [id])
+  estado      VentaEstado    @default(PENDIENTE)
+  canal       VentaCanal     @default(ONLINE)
+  total       Decimal        @db.Decimal(10, 2)
+  descuento   Decimal        @default(0) @db.Decimal(10, 2)
+  notas       String?        @db.Text
+  detalles    VentaDetalle[]
+  pagos       Pago[]
+  envios      Envio[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("venta")
+}
+
+enum VentaEstado {
+  PENDIENTE
+  CONFIRMADA
+  EN_PREPARACION
+  ENVIADO
+  ENTREGADO
+  CANCELADO
+}
+
+enum VentaCanal {
+  ONLINE
+  TIENDA
+  EVENTO
+}
+
+model VentaDetalle {
+  id            Int          @id @default(autoincrement())
+  ventaId       Int
+  venta         Venta        @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  itemId        Int
+  item          ProductoItem @relation(fields: [itemId], references: [id])
+  stockId       Int?
+  stock         Stock?       @relation(fields: [stockId], references: [id])
+  cantidad      Int
+  precioBase    Decimal      @db.Decimal(10, 2)
+  precioVendido Decimal      @db.Decimal(10, 2)
+  descuento     Decimal      @default(0) @db.Decimal(10, 2)
+
+  @@map("venta_detalle")
+}
+
+model Pago {
+  id         Int      @id @default(autoincrement())
+  ventaId    Int
+  venta      Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  metodo     String   @db.VarChar(50)
+  monto      Decimal  @db.Decimal(10, 2)
+  referencia String?  @db.VarChar(100)
+  createdAt  DateTime @default(now())
+
+  @@map("pago")
+}
+
+model Envio {
+  id           Int       @id @default(autoincrement())
+  ventaId      Int
+  venta        Venta     @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  tipo         String?   @db.VarChar(50)
+  tracking     String?   @db.VarChar(100)
+  estado       String?   @db.VarChar(50)
+  direccion    String?   @db.Text
+  fechaEnvio   DateTime?
+  fechaEntrega DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("envio")
+}
+
+// ─────────────────────────────────────────────
+// CARRITO
+// ─────────────────────────────────────────────
+
+model Carrito {
+  id        Int              @id @default(autoincrement())
+  clienteId Int?
+  cliente   Cliente?         @relation(fields: [clienteId], references: [id])
+  sessionId String?          @db.VarChar(100)
+  detalles  CarritoDetalle[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@map("carrito")
+}
+
+model CarritoDetalle {
+  id        Int          @id @default(autoincrement())
+  carritoId Int
+  carrito   Carrito      @relation(fields: [carritoId], references: [id], onDelete: Cascade)
+  itemId    Int
+  item      ProductoItem @relation(fields: [itemId], references: [id])
+  cantidad  Int
+  expiraEn  DateTime?
+  createdAt DateTime     @default(now())
+
+  @@map("carrito_detalle")
+}
+
+// ─────────────────────────────────────────────
+// CAJA Y POS
+// ─────────────────────────────────────────────
+
+model Caja {
+  id            Int        @id @default(autoincrement())
+  usuarioId     Int
+  usuario       Usuario    @relation(fields: [usuarioId], references: [id])
+  ubicacionId   Int
+  ubicacion     Ubicacion  @relation(fields: [ubicacionId], references: [id])
+  estado        CajaEstado @default(ABIERTA)
+  montoInicial  Decimal    @db.Decimal(10, 2)
+  montoFinal    Decimal?   @db.Decimal(10, 2)
+  ventas        Venta[]
+  fechaApertura DateTime   @default(now())
+  fechaCierre   DateTime?
+
+  @@map("caja")
+}
+
+enum CajaEstado {
+  ABIERTA
+  CERRADA
+}
+
+// ─────────────────────────────────────────────
+// FINANZAS
+// ─────────────────────────────────────────────
+
+model Gasto {
+  id          Int        @id @default(autoincrement())
+  ubicacionId Int?
+  ubicacion   Ubicacion? @relation(fields: [ubicacionId], references: [id])
+  usuarioId   Int?
+  usuario     Usuario?   @relation(fields: [usuarioId], references: [id])
+  descripcion String?    @db.Text
+  monto       Decimal    @db.Decimal(10, 2)
+  categoria   String?    @db.VarChar(50)
+  createdAt   DateTime   @default(now())
+
+  @@map("gasto")
+}
+
+// ─────────────────────────────────────────────
+// MARKETING
+// ─────────────────────────────────────────────
+
+model Oferta {
+  id             Int             @id @default(autoincrement())
+  nombre         String          @db.VarChar(100)
+  tipoDescuento  String          @db.VarChar(20)
+  valor          Decimal         @db.Decimal(10, 2)
+  fechaInicio    DateTime
+  fechaFin       DateTime
+  activa         Boolean         @default(true)
+  items          OfertaItem[]
+  festivoOfertas FestivoOferta[]
+
+  @@map("oferta")
+}
+
+model OfertaItem {
+  ofertaId Int
+  oferta   Oferta       @relation(fields: [ofertaId], references: [id])
+  itemId   Int
+  item     ProductoItem @relation(fields: [itemId], references: [id])
+
+  @@id([ofertaId, itemId])
+  @@map("oferta_item")
+}
+
+model Cupon {
+  id        Int       @id @default(autoincrement())
+  codigo    String    @unique @db.VarChar(50)
+  descuento Decimal   @db.Decimal(10, 2)
+  tipo      String    @db.VarChar(20)
+  usos      Int       @default(0)
+  maxUsos   Int?
+  activo    Boolean   @default(true)
+  fechaFin  DateTime?
+  createdAt DateTime  @default(now())
+
+  @@map("cupon")
+}
+
+model Combo {
+  id          Int            @id @default(autoincrement())
+  nombre      String         @db.VarChar(100)
+  descripcion String?        @db.Text
+  precioCombo Decimal        @db.Decimal(10, 2)
+  activo      Boolean        @default(true)
+  detalles    ComboDetalle[]
+
+  @@map("combo")
+}
+
+model ComboDetalle {
+  comboId  Int
+  combo    Combo        @relation(fields: [comboId], references: [id])
+  itemId   Int
+  item     ProductoItem @relation(fields: [itemId], references: [id])
+  cantidad Int
+
+  @@id([comboId, itemId])
+  @@map("combo_detalle")
+}
+
+model Liquidacion {
+  id               Int          @id @default(autoincrement())
+  itemId           Int
+  item             ProductoItem @relation(fields: [itemId], references: [id])
+  precioLiquidacion Decimal     @db.Decimal(10, 2)
+  motivo           String?      @db.Text
+  activa           Boolean      @default(true)
+
+  @@map("liquidacion")
+}
+
+model DiaFestivo {
+  id      Int             @id @default(autoincrement())
+  nombre  String          @db.VarChar(100)
+  fecha   DateTime        @db.Date
+  ofertas FestivoOferta[]
+
+  @@map("dia_festivo")
+}
+
+model FestivoOferta {
+  festivoId Int
+  festivo   DiaFestivo @relation(fields: [festivoId], references: [id])
+  ofertaId  Int
+  oferta    Oferta     @relation(fields: [ofertaId], references: [id])
+
+  @@id([festivoId, ofertaId])
+  @@map("festivo_oferta")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCCIÓN
+// ─────────────────────────────────────────────
+
+model Insumo {
+  id            Int              @id @default(autoincrement())
+  nombre        String           @db.VarChar(100)
+  stock         Int              @default(0)
+  costoUnitario Decimal          @db.Decimal(10, 2)
+  productos     ProductoInsumo[]
+
+  @@map("insumo")
+}
+
+model ProductoInsumo {
+  productoId    Int
+  producto      Producto @relation(fields: [productoId], references: [id])
+  insumoId      Int
+  insumo        Insumo   @relation(fields: [insumoId], references: [id])
+  cantidadUsada Decimal  @db.Decimal(10, 2)
+
+  @@id([productoId, insumoId])
+  @@map("producto_insumo")
+}
+
+// ─────────────────────────────────────────────
+// PEDIDOS PERSONALIZADOS
+// ─────────────────────────────────────────────
+
+model PedidoPersonalizado {
+  id             Int      @id @default(autoincrement())
+  clienteId      Int
+  cliente        Cliente  @relation(fields: [clienteId], references: [id])
+  descripcion    String   @db.Text
+  imagenUrl      String?  @db.Text
+  estado         String   @default("PENDIENTE") @db.VarChar(50)
+  precioEstimado Decimal? @db.Decimal(10, 2)
+  notas          String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("pedido_personalizado")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICACIONES Y AUDITORÍA
+// ─────────────────────────────────────────────
+
+model Notificacion {
+  id        Int      @id @default(autoincrement())
+  tipo      String   @db.VarChar(50)
+  titulo    String   @db.VarChar(200)
+  mensaje   String   @db.Text
+  leida     Boolean  @default(false)
+  usuarioId Int?
+  createdAt DateTime @default(now())
+
+  @@map("notificacion")
+}
+
+model Auditoria {
+  id              Int      @id @default(autoincrement())
+  usuarioId       Int?
+  usuario         Usuario? @relation(fields: [usuarioId], references: [id])
+  accion          String   @db.VarChar(50)
+  tablaAfectada   String   @db.VarChar(50)
+  idRegistro      Int?
+  datosAnteriores Json?
+  datosNuevos     Json?
+  ipAddress       String?  @db.VarChar(45)
+  createdAt       DateTime @default(now())
+
+  @@map("auditoria")
+}
+
+model Reclamacion {
+  id            Int      @id @default(autoincrement())
+  tipo          String   @db.VarChar(50)  // RECLAMO | QUEJA
+  nombre        String   @db.VarChar(150)
+  documento     String   @db.VarChar(20)
+  correo        String   @db.VarChar(150)
+  telefono      String?  @db.VarChar(20)
+  direccion     String?  @db.VarChar(300)
+  detalleBien   String?  @db.Text
+  descripcion   String   @db.Text
+  pedido        String   @db.Text
+  estado        String   @default("PENDIENTE") @db.VarChar(30)
+  respuesta     String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("reclamacion")
+}
+
+model Contacto {
+  id        Int      @id @default(autoincrement())
+  nombre    String   @db.VarChar(150)
+  correo    String   @db.VarChar(150)
+  telefono  String?  @db.VarChar(20)
+  asunto    String   @db.VarChar(200)
+  mensaje   String   @db.Text
+  leido     Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("contacto")
+}

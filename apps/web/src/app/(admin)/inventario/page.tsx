@@ -1,0 +1,329 @@
+'use client';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Minus, Edit3, AlertCircle, Search, MapPin, PackagePlus, ArrowRightLeft } from 'lucide-react';
+import api from '@/lib/api';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui/toaster';
+
+interface AdjustData { itemId: number; ubicacionId: number; nombreProducto: string; sku: string; cantidadActual: number; }
+
+export default function InventarioPage() {
+  const qc = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [ubicacionId, setUbicacionId] = useState<number | null>(null);
+  const [adjustFor, setAdjustFor] = useState<AdjustData | null>(null);
+  const [adjustForm, setAdjustForm] = useState({ tipo: 'ENTRADA', cantidad: '', motivo: '' });
+
+  // Modal: asignar producto a ubicación
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignForm, setAssignForm] = useState({ itemId: '', ubicacionId: '', cantidad: '0' });
+
+  // Modal: transferir entre ubicaciones
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferForm, setTransferForm] = useState({ itemId: '', origenId: '', destinoId: '', cantidad: '' });
+
+  const { data: ubicaciones } = useQuery({ queryKey: ['ubicaciones'], queryFn: () => api.get('/inventory/ubicaciones').then((r) => r.data) });
+  const { data: stocks, isLoading } = useQuery({
+    queryKey: ['inv-stock', ubicacionId],
+    queryFn: () => api.get('/inventory/stock', { params: ubicacionId ? { ubicacionId } : {} }).then((r) => r.data),
+  });
+  // Para los selectores: lista de items/productos
+  const { data: itemsAll } = useQuery({
+    queryKey: ['inv-all-items'],
+    queryFn: () => api.get('/products', { params: { limit: 200 } }).then((r) => r.data),
+    enabled: assignOpen || transferOpen,
+  });
+
+  const filtered = (stocks ?? []).filter((s: any) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return s.item?.producto?.nombre?.toLowerCase().includes(q) || s.item?.codigoSku?.toLowerCase().includes(q);
+  });
+
+  const totalUnidades = filtered.reduce((a: number, s: any) => a + (s.cantidad ?? 0), 0);
+  const alertas = filtered.filter((s: any) => s.cantidad <= 5).length;
+
+  const { mutate: adjust, isPending } = useMutation({
+    mutationFn: () => api.post('/inventory/adjust', {
+      itemId: adjustFor!.itemId,
+      ubicacionId: adjustFor!.ubicacionId,
+      tipo: adjustForm.tipo,
+      cantidad: Number(adjustForm.cantidad),
+      motivo: adjustForm.motivo,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inv-stock'] });
+      toast({ title: '✅ Stock actualizado' });
+      setAdjustFor(null);
+      setAdjustForm({ tipo: 'ENTRADA', cantidad: '', motivo: '' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.response?.data?.message?.toString(), variant: 'destructive' }),
+  });
+
+  const { mutate: assign, isPending: assigning } = useMutation({
+    mutationFn: () => api.post('/inventory/set-stock', {
+      itemId: Number(assignForm.itemId),
+      ubicacionId: Number(assignForm.ubicacionId),
+      cantidad: Number(assignForm.cantidad),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inv-stock'] });
+      toast({ title: '✅ Producto asignado a ubicación' });
+      setAssignOpen(false);
+      setAssignForm({ itemId: '', ubicacionId: '', cantidad: '0' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.response?.data?.message?.toString(), variant: 'destructive' }),
+  });
+
+  const { mutate: transfer, isPending: transfering } = useMutation({
+    mutationFn: () => api.post('/inventory/transfer', {
+      itemId: Number(transferForm.itemId),
+      origenId: Number(transferForm.origenId),
+      destinoId: Number(transferForm.destinoId),
+      cantidad: Number(transferForm.cantidad),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inv-stock'] });
+      toast({ title: '✅ Transferencia realizada' });
+      setTransferOpen(false);
+      setTransferForm({ itemId: '', origenId: '', destinoId: '', cantidad: '' });
+    },
+    onError: (e: any) => toast({ title: 'Error', description: e.response?.data?.message?.toString(), variant: 'destructive' }),
+  });
+
+  // Aplanar todos los items con SKU desde productos
+  const itemsFlat: any[] = (itemsAll?.data ?? []).flatMap((p: any) =>
+    (p.items ?? []).map((it: any) => ({ id: it.id, sku: it.codigoSku, nombre: `${p.nombre} — ${it.codigoSku}` }))
+  );
+
+  return (
+    <div>
+      <div className="flex items-start justify-between mb-6 flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Inventario</h1>
+          <p className="text-muted-foreground text-sm mt-1">Gestión de stock por ubicación</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setTransferOpen(true)}>
+            <ArrowRightLeft className="w-4 h-4" />Transferir
+          </Button>
+          <Button className="gap-2" onClick={() => setAssignOpen(true)}>
+            <PackagePlus className="w-4 h-4" />Asignar a ubicación
+          </Button>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Items totales</p>
+          <p className="text-2xl font-bold mt-0.5">{filtered.length}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">Unidades</p>
+          <p className="text-2xl font-bold mt-0.5">{totalUnidades}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground flex items-center gap-1"><AlertCircle className="w-3 h-3" />Alertas</p>
+          <p className={cn('text-2xl font-bold mt-0.5', alertas > 0 && 'text-accent')}>{alertas}</p>
+        </CardContent></Card>
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Buscar por SKU o nombre..." className="pl-10" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <select
+          className="h-10 px-3 rounded-md border border-border bg-input text-sm min-w-[200px]"
+          value={ubicacionId ?? ''}
+          onChange={(e) => setUbicacionId(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">Todas las ubicaciones</option>
+          {ubicaciones?.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+        </select>
+      </div>
+
+      <Card>
+        <CardContent className="p-0 overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="border-b border-border bg-secondary/50">
+              <tr className="text-left">
+                {['SKU', 'Producto', 'Variante', 'Ubicación', 'Stock', 'Reservado', 'Estado', 'Acción'].map((h) => (
+                  <th key={h} className="p-3 text-muted-foreground font-medium text-xs uppercase tracking-wider">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Cargando...</td></tr>
+              ) : !filtered.length ? (
+                <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Sin resultados</td></tr>
+              ) : filtered.map((s: any) => {
+                const estado = s.cantidad === 0 ? 'AGOTADO' : s.cantidad <= 5 ? 'BAJO' : 'OK';
+                const color = estado === 'AGOTADO' ? 'text-accent' : estado === 'BAJO' ? 'text-yellow-600 dark:text-yellow-400' : 'text-green-600 dark:text-green-400';
+                return (
+                  <tr key={s.id} className="border-b border-border/50 hover:bg-secondary/30">
+                    <td className="p-3 font-mono text-xs">{s.item?.codigoSku}</td>
+                    <td className="p-3 font-medium">{s.item?.producto?.nombre}</td>
+                    <td className="p-3 text-muted-foreground text-xs">{s.item?.variante?.tamano ?? '—'}</td>
+                    <td className="p-3 text-xs flex items-center gap-1"><MapPin className="w-3 h-3" />{s.ubicacion?.nombre}</td>
+                    <td className="p-3 font-bold">{s.cantidad}</td>
+                    <td className="p-3 text-muted-foreground">{s.reservado ?? 0}</td>
+                    <td className={`p-3 font-bold text-xs ${color}`}>{estado}</td>
+                    <td className="p-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 h-7"
+                        onClick={() => {
+                          setAdjustFor({ itemId: s.itemId, ubicacionId: s.ubicacionId, nombreProducto: s.item?.producto?.nombre, sku: s.item?.codigoSku, cantidadActual: s.cantidad });
+                          setAdjustForm({ tipo: 'ENTRADA', cantidad: '', motivo: '' });
+                        }}
+                      >
+                        <Edit3 className="w-3 h-3" />Ajustar
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {/* MODAL: Ajustar stock */}
+      {adjustFor && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6 border-b border-border">
+              <h2 className="font-bold text-lg">Ajustar stock</h2>
+              <p className="text-sm text-muted-foreground mt-1">{adjustFor.nombreProducto}</p>
+              <p className="text-xs text-muted-foreground font-mono">{adjustFor.sku} · Stock actual: {adjustFor.cantidadActual}</p>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Tipo</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { v: 'ENTRADA', l: 'Entrada', i: Plus },
+                    { v: 'SALIDA', l: 'Salida', i: Minus },
+                    { v: 'AJUSTE', l: 'Setear', i: Edit3 },
+                  ].map((opt) => (
+                    <button key={opt.v} onClick={() => setAdjustForm((p) => ({ ...p, tipo: opt.v }))}
+                      className={cn('p-2 rounded-md border text-sm flex flex-col items-center gap-1 transition-colors',
+                        adjustForm.tipo === opt.v ? 'border-foreground bg-secondary' : 'border-border hover:border-muted-foreground'
+                      )}>
+                      <opt.i className="w-4 h-4" />
+                      <span className="text-xs">{opt.l}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Cantidad</label>
+                <Input type="number" min="0" value={adjustForm.cantidad} onChange={(e) => setAdjustForm((p) => ({ ...p, cantidad: e.target.value }))} />
+                {adjustForm.tipo === 'AJUSTE' && <p className="text-xs text-muted-foreground mt-1">El stock quedará exactamente con el valor ingresado</p>}
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Motivo</label>
+                <Input placeholder="Ej: Compra a proveedor, merma..." value={adjustForm.motivo} onChange={(e) => setAdjustForm((p) => ({ ...p, motivo: e.target.value }))} />
+              </div>
+            </div>
+            <div className="p-6 border-t border-border flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setAdjustFor(null)}>Cancelar</Button>
+              <Button className="flex-1" disabled={!adjustForm.cantidad || isPending} onClick={() => adjust()}>{isPending ? 'Guardando...' : 'Confirmar'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Asignar producto a ubicación */}
+      {assignOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6 border-b border-border">
+              <h2 className="font-bold text-lg flex items-center gap-2"><PackagePlus className="w-5 h-5" />Asignar producto a ubicación</h2>
+              <p className="text-sm text-muted-foreground mt-1">Crear o setear stock inicial de un producto en una ubicación</p>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Producto / SKU</label>
+                <select className="h-10 w-full bg-input border border-border rounded-md px-3 text-sm" value={assignForm.itemId} onChange={(e) => setAssignForm((p) => ({ ...p, itemId: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {itemsFlat.map((it) => <option key={it.id} value={it.id}>{it.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Ubicación destino</label>
+                <select className="h-10 w-full bg-input border border-border rounded-md px-3 text-sm" value={assignForm.ubicacionId} onChange={(e) => setAssignForm((p) => ({ ...p, ubicacionId: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {ubicaciones?.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Cantidad inicial</label>
+                <Input type="number" min="0" value={assignForm.cantidad} onChange={(e) => setAssignForm((p) => ({ ...p, cantidad: e.target.value }))} />
+                <p className="text-xs text-muted-foreground mt-1">Si el producto ya tiene stock en esta ubicación, será reemplazado por esta cantidad.</p>
+              </div>
+            </div>
+            <div className="p-6 border-t border-border flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setAssignOpen(false)}>Cancelar</Button>
+              <Button className="flex-1" disabled={!assignForm.itemId || !assignForm.ubicacionId || assigning} onClick={() => assign()}>{assigning ? 'Guardando...' : 'Asignar'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Transferir */}
+      {transferOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-lg w-full max-w-md shadow-xl">
+            <div className="p-6 border-b border-border">
+              <h2 className="font-bold text-lg flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" />Transferir stock</h2>
+              <p className="text-sm text-muted-foreground mt-1">Mover unidades entre ubicaciones</p>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Producto / SKU</label>
+                <select className="h-10 w-full bg-input border border-border rounded-md px-3 text-sm" value={transferForm.itemId} onChange={(e) => setTransferForm((p) => ({ ...p, itemId: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {itemsFlat.map((it) => <option key={it.id} value={it.id}>{it.nombre}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Desde</label>
+                  <select className="h-10 w-full bg-input border border-border rounded-md px-3 text-sm" value={transferForm.origenId} onChange={(e) => setTransferForm((p) => ({ ...p, origenId: e.target.value }))}>
+                    <option value="">—</option>
+                    {ubicaciones?.map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1.5 block">Hacia</label>
+                  <select className="h-10 w-full bg-input border border-border rounded-md px-3 text-sm" value={transferForm.destinoId} onChange={(e) => setTransferForm((p) => ({ ...p, destinoId: e.target.value }))}>
+                    <option value="">—</option>
+                    {ubicaciones?.filter((u: any) => String(u.id) !== transferForm.origenId).map((u: any) => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1.5 block">Cantidad a transferir</label>
+                <Input type="number" min="1" value={transferForm.cantidad} onChange={(e) => setTransferForm((p) => ({ ...p, cantidad: e.target.value }))} />
+              </div>
+            </div>
+            <div className="p-6 border-t border-border flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setTransferOpen(false)}>Cancelar</Button>
+              <Button className="flex-1" disabled={!transferForm.itemId || !transferForm.origenId || !transferForm.destinoId || !transferForm.cantidad || transfering} onClick={() => transfer()}>{transfering ? 'Procesando...' : 'Transferir'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
