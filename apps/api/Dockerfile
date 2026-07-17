@@ -2,6 +2,7 @@
 
 # ── 1) Base: pnpm + turbo ──────────────────────────────────
 FROM node:20-bookworm-slim AS base
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN npm install -g pnpm@9 turbo@2
 
 # ── 2) Prune: se queda solo con lo que "api" necesita ──────
@@ -26,6 +27,7 @@ RUN pnpm turbo run build --filter=api
 
 # ── 5) Runner: imagen final, sin herramientas de build ─────
 FROM node:20-bookworm-slim AS runner
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production
 RUN groupadd -r nestjs && useradd -r -g nestjs nestjs
