@@ -37,7 +37,7 @@ WORKDIR /app/apps/api
 EXPOSE 3001
 
 # aplica migraciones pendientes y recién ahí levanta la API
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD node -e "require('http').get({host:'localhost',port:3001,path:'/api/v1',timeout:2000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
